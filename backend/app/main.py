@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.api.router import api_router
 from app.core.database import connect_to_mongo, close_mongo_connection
+from fastapi.staticfiles import StaticFiles
+
+import os
 
 # Sử dụng lifespan để quản lý kết nối Database (thay cho on_event)
 @asynccontextmanager
@@ -14,8 +17,8 @@ async def lifespan(app: FastAPI):
     await close_mongo_connection()
 
 app = FastAPI(
-    title="HanaFlower API",
-    description="Backend cho tiệm hoa HanaFlower",
+    title="Flora API",
+    description="Backend cho tiệm hoa Flora",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -30,14 +33,22 @@ app.add_middleware(
     allow_headers=["*"],  # Cho phép tất cả các headers
 )
 
+if not os.path.exists("uploads"):
+    os.makedirs("uploads")
+
+# 3. CẤU HÌNH STATIC FILES (ĐỂ TRUY CẬP ĐƯỜNG DẪN FILE)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 # 2. ĐƯA CÁC ROUTES VÀO APP
 # Prefix /api sẽ làm cho các đường dẫn thành: /api/products, /api/orders, ...
 app.include_router(api_router, prefix="/api")
+
+
 
 @app.get("/")
 def read_root():
     return {
         "status": "online",
-        "message": "Welcome to HanaFlower API",
+        "message": "Welcome to Flora API",
         "docs": "/docs"  # Đường dẫn xem tài liệu API
     }

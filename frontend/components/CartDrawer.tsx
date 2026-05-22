@@ -4,10 +4,12 @@ import { X, Trash2, ShoppingBag, Plus, Minus, ArrowRight, Check } from 'lucide-r
 import { useCart } from '../contexts/CartContext';
 import { cn } from '../utils/cn';
 import { useNavigate } from 'react-router-dom';
+import { useUI } from '../contexts/UIContext';
 
 export default function CartDrawer() {
   const { items, removeItem, updateQuantity, totalPrice, isOpen, setIsOpen, toggleSelect, selectAll, selectedPrice, selectedCount, removeSelected } = useCart();
   const navigate = useNavigate();
+  const { showModal } = useUI();
 
   const allSelected = items.length > 0 && items.every(i => i.selected);
 
@@ -57,11 +59,17 @@ export default function CartDrawer() {
                   <span className="text-[10px] uppercase tracking-widest font-bold text-ink/40">Chọn tất cả</span>
                 </button>
                 <button 
-                  onClick={() => { if(confirm("Xóa các sản phẩm đã chọn?")) removeSelected() }}
-                  className="text-[9px] uppercase tracking-widest font-bold text-red-400 hover:text-red-500 transition-colors"
-                >
-                  Xóa mục đã chọn
-                </button>
+  onClick={() => showModal({
+    title: "Làm sạch giỏ hàng?",
+    message: "Bạn có chắc muốn xóa các sản phẩm đã chọn khỏi giỏ hàng của bạn?",
+    type: "danger",
+    showCancel: true,
+    confirmText: "Đúng, hãy xóa chúng",
+    onConfirm: () => removeSelected() // Hàm xóa thật của bạn
+  })}
+>
+  Xóa mục đã chọn
+</button>
               </div>
             )}
 
@@ -154,7 +162,11 @@ export default function CartDrawer() {
                 <button 
                   onClick={() => {
                     if (selectedCount === 0) {
-                      alert("Vui lòng chọn sản phẩm để thanh toán");
+                      showModal({
+            title: "Lỗi thực hiện",
+            message: data.error || "Vui lòng chọn ít nhất một sản phẩm để thanh toán.",
+            type: "warning"
+          });
                       return;
                     }
                     setIsOpen(false);

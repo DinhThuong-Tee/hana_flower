@@ -1,23 +1,37 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, Header
+from app.core.security import decode_access_token
+from typing import Optional
 from app.core.database import get_db
 from app.models.schemas import OrderModel
 from bson import ObjectId  
 from datetime import datetime 
 import random, string
+import shutil
 from dotenv import load_dotenv
 import os
 
 load_dotenv()  
 router = APIRouter()
 
+# Hàm kiểm tra Token của User (giống Admin nhưng kiểm tra quyền cơ bản)
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập")
+    token = authorization.split(" ")[1]
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
+    return payload # Trả về thông tin uid và role
+
 # 1. Tạo đơn hàng (CheckoutPage.tsx)
 @router.post("/")
 async def create_order(order_data: dict = Body(...), db = Depends(get_db)):
     try:
-        # 1. Tạo mã đơn hàng ngẫu nhiên (Ví dụ: HANA12)
+        # 1. Tạo mã đơn hàng ngẫu nhiên (Ví dụ: FLOA12)
         order_code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
         
         total = 0
+        total_profit = 0
         items_processed = []
         now = datetime.now()
 
@@ -30,6 +44,8 @@ async def create_order(order_data: dict = Body(...), db = Depends(get_db)):
             
             # Mặc định lấy giá gốc
             final_price = prod["price"]
+            original_price = prod["original_price"]
+
 
             # Kiểm tra xem sản phẩm này có đang Flash Sale không
             flash_sale = await db["flash_sales"].find_one({"product_id": item["product_id"]})
@@ -46,15 +62,21 @@ async def create_order(order_data: dict = Body(...), db = Depends(get_db)):
                 except:
                     pass # Nếu lỗi ngày tháng thì dùng giá gốc
 
+
+            item_revenue = final_price * item["quantity"]
+            item_profit = (final_price - original_price) * item["quantity"]
+
             # Cộng dồn tổng tiền
-            total += final_price * item["quantity"]
-            
+            total += item_revenue
+            total_profit += item_profit
+
             # Lưu "Ảnh chụp" thông tin sản phẩm lúc mua (Tránh việc sau này sửa tên/giá hoa làm đơn hàng cũ bị sai)
             items_processed.append({
                 "product_id": item["product_id"],
                 "product_name": prod.get("name", "Sản phẩm không tên"), # <-- LƯU TÊN SẢN PHẨM
                 "quantity": item["quantity"],
-                "price_at_purchase": final_price
+                "price_at_purchase": final_price,
+                 "original_price_at_purchase": original_price
             })
 
         # 3. Lấy tên tài khoản người đặt (Account Name)
@@ -66,7 +88,7 @@ async def create_order(order_data: dict = Body(...), db = Depends(get_db)):
             user = await db["users"].find_one({"_id": ObjectId(user_id)})
             if user:
                 # Lấy displayName (tên lúc đăng ký), nếu không có thì lấy email
-                account_name = user.get("displayName") or user.get("email") or "Thành viên Hana"
+                account_name = user.get("displayName") or user.get("email") or "Thành viên Flora"
 
         # 4. Cấu trúc toàn bộ dữ liệu đơn hàng để lưu vào Database
         order_to_save = {
@@ -85,6 +107,7 @@ async def create_order(order_data: dict = Body(...), db = Depends(get_db)):
             },
             "items": items_processed,
             "total_amount": total,
+            "total_profit": total_profit,
             "payment_method": order_data["payment_method"],
             "order_status": "pending",          # Trạng thái mặc định: Chờ duyệt
             "payment_status": "pending",        # Trạng thái mặc định: Chưa thanh toán
@@ -100,6 +123,7 @@ async def create_order(order_data: dict = Body(...), db = Depends(get_db)):
             "_id": str(result.inserted_id),
             "order_code": order_code,
             "total_amount": total,
+            "total_profit": total_profit,
             "status": "success"
         }
         
@@ -125,43 +149,64 @@ async def track_order(phone: str, orderCode: str, db = Depends(get_db)):
 # 3. Cập nhật ảnh biên lai (PATCH từ FE)
 @router.patch("/{order_id}/receipt")
 async def upload_receipt(order_id: str, receipt: UploadFile = File(...), db = Depends(get_db)):
-    # Logic: Lưu file vào Cloudinary/S3 và lấy URL
-    file_url = "https://your-storage.com/receipts/bill_123.jpg" 
-    await db["orders"].update_one(
-        {"_id": ObjectId(order_id)},
-        {"$set": {"payment_receipt": file_url}}
-    )
-    return {"receiptUrl": file_url}
+    try:
+        # 1. Tạo thư mục 'uploads' nếu chưa có
+        upload_dir = "uploads"
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+
+        # 2. Tạo tên file duy nhất (để không bị trùng)
+        file_extension = receipt.filename.split(".")[-1]
+        file_name = f"receipt_{order_id}.{file_extension}"
+        file_path = os.path.join(upload_dir, file_name)
+
+        # 3. Lưu file vào ổ cứng
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(receipt.file, buffer)
+
+        # 4. Tạo đường dẫn URL (Link ảnh chạy trên localhost)
+        # Lưu ý: Port 8000 là port của Backend
+        file_url = f"http://localhost:8000/uploads/{file_name}"
+
+        # 5. Cập nhật link này vào Database
+        await db["orders"].update_one(
+            {"_id": ObjectId(order_id)},
+            {"$set": {"payment_receipt": file_url}}
+        )
+
+        return {"receiptUrl": file_url}
+    except Exception as e:
+        print(f"Lỗi lưu file: {e}")
+        raise HTTPException(status_code=500, detail="Không thể lưu ảnh minh chứng")
 
 # 4. Hủy đơn hàng
 @router.put("/{order_id}/cancel")
-async def cancel_order(order_id: str, db = Depends(get_db)):
+async def cancel_order(order_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+    # BẢO MẬT: Kiểm tra xem đơn hàng này có đúng là của người đang yêu cầu hủy không
+    order = await db["orders"].find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(404, "Không thấy đơn hàng")
+    
+    if order.get("user_id") != current_user.get("uid"):
+        raise HTTPException(403, "Bạn không thể hủy đơn của người khác")
+
     result = await db["orders"].update_one(
         {"_id": ObjectId(order_id), "order_status": "pending"},
         {"$set": {"order_status": "cancelled"}}
     )
-    if result.modified_count == 0:
-        raise HTTPException(400, "Không thể hủy đơn hàng này")
     return {"message": "Đã hủy"}
 
 # Lấy danh sách đơn hàng của một người dùng cụ thể (Dùng cho trang Hành trình của hoa)
 @router.get("/user/{user_id}")
-async def get_user_orders(user_id: str, db = Depends(get_db)):
-    try:
-        # Tìm tất cả đơn hàng có user_id trùng với ID người dùng đang đăng nhập
-        cursor = db["orders"].find({"user_id": user_id}).sort("created_at", -1)
-        orders = await cursor.to_list(length=100)
-        
-        for o in orders:
-            o["_id"] = str(o["_id"])
-            # Đảm bảo các trường datetime được chuyển thành string nếu cần
-            if "created_at" in o and o["created_at"]:
-                o["created_at"] = o["created_at"].isoformat()
-                
-        return orders
-    except Exception as e:
-        print(f"Lỗi lấy đơn hàng user: {e}")
-        return []
+async def get_user_orders(user_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+    # BẢO MẬT: Chỉ cho phép lấy đơn hàng nếu UID trong Token trùng với user_id trong URL
+    if current_user.get("uid") != user_id:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xem đơn hàng của người khác")
+    
+    cursor = db["orders"].find({"user_id": user_id}).sort("created_at", -1)
+    orders = await cursor.to_list(length=100)
+    for o in orders: o["_id"] = str(o["_id"])
+    return orders
     
     # API LẤY LINK MÃ QR THANH TOÁN (CheckoutPage.tsx gọi API này)
 @router.get("/payments/vietqr/{order_code}")
@@ -178,7 +223,7 @@ async def get_vietqr_link(order_code: str, db = Depends(get_db)):
         ACCOUNT_NAME = os.getenv("VITE_BANK_ACCOUNT_NAME") # TÊN TÀI KHOẢN (Viết hoa không dấu)
 
         amount = int(order["total_amount"])
-        description = f"HANA {order_code}" # Nội dung chuyển khoản
+        description = f"Flora {order_code}" # Nội dung chuyển khoản
 
         # 3. Tạo link ảnh QR theo chuẩn VietQR (sử dụng dịch vụ vietqr.io miễn phí)
         # compact2 là mẫu QR tối giản hiện số tiền và nội dung
@@ -189,3 +234,25 @@ async def get_vietqr_link(order_code: str, db = Depends(get_db)):
     except Exception as e:
         print(f"Lỗi tạo QR: {e}")
         raise HTTPException(status_code=500, detail="Không thể tạo mã QR lúc này")
+    
+    # API lấy đơn hàng mới nhất của người dùng để điền sẵn thông tin (Auto-fill)
+@router.get("/latest-info/{user_id}")
+async def get_latest_order_info(user_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+    # Bảo mật: Chỉ chính chủ mới lấy được info của mình
+    if current_user.get("uid") != user_id:
+        raise HTTPException(status_code=403, detail="Không có quyền")
+
+    # Tìm đơn hàng gần nhất, sắp xếp theo thời gian giảm dần
+    latest_order = await db["orders"].find_one(
+        {"user_id": user_id},
+        sort=[("created_at", -1)]
+    )
+    
+    if not latest_order:
+        return None # Trả về rỗng nếu là khách mới chưa mua bao giờ
+        
+    return {
+        "name": latest_order["customer_info"]["name"],
+        "phone": latest_order["customer_info"]["phone"],
+        "address": latest_order["customer_info"]["address"]
+    }

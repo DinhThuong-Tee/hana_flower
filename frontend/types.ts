@@ -59,6 +59,7 @@ export interface Order {
     price_at_purchase: number;
   }>;
   total_amount: number;
+  total_profit: number;
   payment_status: "unpaid" | "paid";
   order_status: "pending" | "shipping" | "completed" | "cancelled";
   payment_method: string;

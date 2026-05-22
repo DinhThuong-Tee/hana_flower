@@ -18,11 +18,13 @@ import {
 } from "lucide-react";
 import { Order } from "../types";
 import { cn } from "../utils/cn";
+import { useUI } from "../contexts/UIContext";
 
 import { useAuth } from "../contexts/AuthContext";
 
 export default function TrackingPage() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [phone, setPhone] = useState("");
   const [orderId, setOrderId] = useState("");
   const [order, setOrder] = useState<Order | null>(null);
@@ -30,8 +32,15 @@ export default function TrackingPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [error, setError] = useState("");
+  const { showModal } = useUI();
 
-  // NEW: Lưu danh sách đánh giá của đơn hàng đang xem
+  const [popup, setPopup] = useState<{
+    title: string;
+    message: string;
+    type: "success" | "error" | "warning";
+  } | null>(null);
+
+  // Lưu danh sách đánh giá của đơn hàng đang xem
   const [currentOrderReviews, setCurrentOrderReviews] = useState<any[]>([]);
 
   const [activeReviewProduct, setActiveReviewProduct] = useState<string | null>(
@@ -41,22 +50,33 @@ export default function TrackingPage() {
   const [comment, setComment] = useState("");
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
+  // Helper lấy Header kèm Token
+  const getAuthHeader = () => {
+    const token = localStorage.getItem("flora_token");
+    return {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+  };
+
   useEffect(() => {
     if (profile?.uid) {
       fetchUserOrders();
     }
   }, [profile]);
 
-  // NEW: Mỗi khi 'order' thay đổi (người dùng chọn đơn khác), tải đánh giá của đơn đó
   useEffect(() => {
     if (order?._id) {
       fetchOrderReviews(order._id);
     }
   }, [order]);
 
+  // Lấy đánh giá của đơn hàng (Đã thêm Token)
   const fetchOrderReviews = async (id: string) => {
     try {
-      const res = await fetch(`/api/reviews/order/${id}`);
+      const res = await fetch(`/api/reviews/order/${id}`, {
+        headers: getAuthHeader(),
+      });
       if (res.ok) {
         const data = await res.json();
         setCurrentOrderReviews(data);
@@ -66,14 +86,20 @@ export default function TrackingPage() {
     }
   };
 
+  // Lấy danh sách đơn hàng của User (Đã thêm Token)
   const fetchUserOrders = async () => {
     if (!profile?.uid) return;
     setIsLoadingOrders(true);
     try {
-      const res = await fetch(`/api/orders/user/${profile.uid}`);
+      const res = await fetch(`/api/orders/user/${profile.uid}`, {
+        headers: getAuthHeader(),
+      });
       if (res.ok) {
         const data = await res.json();
         setUserOrders(data);
+      } else if (res.status === 401) {
+        // Token hết hạn
+        navigate("/auth");
       }
     } catch (err) {
       console.error("Error fetching user orders:", err);
@@ -82,6 +108,7 @@ export default function TrackingPage() {
     }
   };
 
+  // Tra cứu đơn hàng lẻ (Thường API này public hoặc dùng token nếu có)
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSearching(true);
@@ -109,37 +136,71 @@ export default function TrackingPage() {
     }
   };
 
+  // Hủy đơn hàng (Đã thêm Token)
   const cancelOrder = async () => {
-    if (!order) return;
-    if (!confirm("Bạn có chắc chắn muốn hủy đơn hàng này?")) return;
+  if (!order) return;
 
-    try {
-      const res = await fetch(`/api/orders/${order._id}/cancel`, {
-        method: "PUT",
-      });
-      if (res.ok) {
-        setOrder((prev) =>
-          prev ? { ...prev, order_status: "cancelled" } : null,
-        );
-        alert("Hủy đơn thành công.");
-      } else {
-        const data = await res.json();
-        throw new Error(data.error || "Không thể hủy đơn hàng");
+  showModal({
+    title: "Xác nhận hủy đơn?",
+    message: "Bạn có chắc chắn muốn dừng hành trình của đóa hoa này không? Thao tác này không thể hoàn tác.",
+    type: "danger",
+    showCancel: true,
+    confirmText: "Đúng, hãy hủy đơn",
+    cancelText: "Quay lại",
+    onConfirm: async () => {
+      // Logic xóa thật được đưa vào trong này
+      try {
+        const res = await fetch(`/api/orders/${order._id}/cancel`, {
+          method: "PUT",
+          headers: {
+             "Authorization": `Bearer ${localStorage.getItem("flora_token")}`
+          }
+        });
+
+        if (res.ok) {
+          // Cập nhật giao diện tại chỗ
+          setOrder(prev => prev ? { ...prev, order_status: "cancelled" } : null);
+
+          showModal({
+            title: "Đã hủy đơn",
+            message: "Đơn hàng của bạn đã được hủy thành công. Hy vọng được phục vụ bạn lần sau!",
+            type: "success"
+          });
+          
+          fetchUserOrders(); // Tải lại danh sách đơn hàng
+        } else {
+          const data = await res.json();
+          showModal({
+            title: "Lỗi thực hiện",
+            message: data.error || "Không thể hủy đơn hàng lúc này.",
+            type: "warning"
+          });
+        }
+      } catch (err) {
+        showModal({
+          title: "Lỗi kết nối",
+          message: "Mất kết nối với máy chủ, vui lòng thử lại sau.",
+          type: "danger"
+        });
       }
-    } catch (err: any) {
-      alert("Không thể hủy đơn hàng lúc này: " + err.message);
     }
-  };
+  });
+};
 
   const submitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!order || !activeReviewProduct) return;
 
     setIsSubmittingReview(true);
+    const token = localStorage.getItem("flora_token"); // Lấy chìa khóa từ máy
+
     try {
-      const res = await fetch("/api/reviews", {
+      const res = await fetch("/api/reviews/", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`, // QUAN TRỌNG: Gửi kèm chìa khóa cho BE
+        },
         body: JSON.stringify({
           product_id: activeReviewProduct,
           order_id: order._id,
@@ -149,21 +210,34 @@ export default function TrackingPage() {
         }),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
-        alert(
-          "Cảm ơn bạn đã đánh giá! Đánh giá sẽ được hiển thị sau khi duyệt.",
-        );
+        setPopup({
+          title: "Thành công",
+          message:
+            "Cảm ơn bạn đã đánh giá! Nghệ nhân Flora sẽ sớm duyệt bài viết này.",
+          type: "success",
+        });
         setActiveReviewProduct(null);
         setComment("");
         setRating(5);
-        // NEW: Tải lại danh sách đánh giá để cập nhật giao diện "Đã đánh giá" ngay lập tức
         fetchOrderReviews(order._id);
       } else {
-        const data = await res.json();
-        alert(data.detail || data.error || "Không thể gửi đánh giá.");
+        // Thay alert cũ bằng Popup đẹp
+        setPopup({
+          title: "Không thể đánh giá",
+          message:
+            data.detail || "Có lỗi xảy ra, vui lòng kiểm tra lại đăng nhập.",
+          type: "error",
+        });
       }
     } catch (err) {
-      alert("Đã xảy ra lỗi khi gửi đánh giá.");
+      setPopup({
+        title: "Lỗi hệ thống",
+        message: "Đã xảy ra lỗi khi gửi đánh giá. Vui lòng thử lại sau.",
+        type: "error",
+      });
     } finally {
       setIsSubmittingReview(false);
     }
@@ -344,7 +418,6 @@ export default function TrackingPage() {
               {isSearching ? "Đang tìm..." : "Kiểm tra ngay"}{" "}
               <Search className="ml-3 w-3 h-3" />
             </button>
-
             {error && (
               <motion.div
                 initial={{ opacity: 0 }}
@@ -452,7 +525,6 @@ export default function TrackingPage() {
                       </div>
                     </div>
                   </div>
-
                   <div className="space-y-6">
                     <div className="p-6 bg-paper rounded-3xl space-y-4">
                       <span className="text-[10px] uppercase tracking-widest font-bold opacity-20 block">
@@ -465,7 +537,6 @@ export default function TrackingPage() {
                         "
                       </p>
                     </div>
-
                     {order.payment_receipt && (
                       <div className="p-4 bg-paper rounded-3xl border border-primary/5">
                         <span className="text-[10px] uppercase tracking-widest font-bold opacity-20 block mb-3">
@@ -484,18 +555,15 @@ export default function TrackingPage() {
                   </div>
                 </div>
 
-                {/* Order Items */}
                 <div className="mb-12">
                   <span className="text-[10px] uppercase tracking-widest font-bold opacity-20 block mb-6">
                     Chi tiết sản phẩm
                   </span>
                   <div className="space-y-4">
                     {order.items.map((item, idx) => {
-                      // NEW: Tìm xem sản phẩm này đã có đánh giá trong ĐƠN HÀNG NÀY chưa
                       const existingReview = currentOrderReviews.find(
                         (r) => r.product_id === item.product_id,
                       );
-
                       return (
                         <div
                           key={idx}
@@ -507,7 +575,8 @@ export default function TrackingPage() {
                                 {item.quantity}x
                               </div>
                               <span className="text-sm font-medium">
-                                Sản phẩm #{item.product_id}
+                                {item.product_name ||
+                                  `Sản phẩm #${item.product_id}`}
                               </span>
                             </div>
                             <div className="flex items-center gap-6">
@@ -515,7 +584,6 @@ export default function TrackingPage() {
                                 {item.price_at_purchase.toLocaleString("vi-VN")}
                                 ₫
                               </span>
-
                               {order.order_status === "completed" &&
                                 (existingReview ? (
                                   <div className="px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest bg-green-50 text-green-600">
@@ -531,7 +599,7 @@ export default function TrackingPage() {
                                       )
                                     }
                                     className={cn(
-                                      "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all",
+                                      "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase transition-all",
                                       activeReviewProduct === item.product_id
                                         ? "bg-primary text-white"
                                         : "bg-white text-primary hover:bg-primary/5",
@@ -545,8 +613,6 @@ export default function TrackingPage() {
                                 ))}
                             </div>
                           </div>
-
-                          {/* NEW: Hiển thị nội dung đánh giá ngay dưới sản phẩm nếu đã đánh giá */}
                           {existingReview && (
                             <div className="mt-4 pt-4 border-t border-dashed border-primary/10">
                               <div className="flex items-center gap-1 mb-2">
@@ -567,7 +633,6 @@ export default function TrackingPage() {
                               </p>
                             </div>
                           )}
-
                           <AnimatePresence>
                             {!existingReview &&
                               activeReviewProduct === item.product_id && (
@@ -603,7 +668,6 @@ export default function TrackingPage() {
                                         ))}
                                       </div>
                                     </div>
-
                                     <div className="space-y-2">
                                       <label className="text-[9px] uppercase tracking-widest font-bold opacity-30">
                                         Cảm nhận của bạn
@@ -618,7 +682,6 @@ export default function TrackingPage() {
                                         }
                                       />
                                     </div>
-
                                     <div className="flex justify-end gap-3">
                                       <button
                                         type="button"
@@ -633,7 +696,7 @@ export default function TrackingPage() {
                                         type="submit"
                                         disabled={isSubmittingReview}
                                         className={cn(
-                                          "px-8 py-3 bg-ink text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-primary transition-all flex items-center gap-2",
+                                          "px-8 py-3 bg-ink text-white rounded-xl text-[10px] font-bold uppercase hover:bg-primary transition-all flex items-center gap-2",
                                           isSubmittingReview && "opacity-50",
                                         )}
                                       >
@@ -670,7 +733,78 @@ export default function TrackingPage() {
                   )}
                 </div>
               </div>
+
+              <div className="p-8 bg-ink rounded-[40px] text-white flex items-center justify-between">
+                <div className="flex items-center space-x-6">
+                  <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
+                    <Truck className="w-6 h-6 text-accent" />
+                  </div>
+                  <div>
+                    <h4 className="font-serif text-lg">
+                      Bạn cần thay đổi thông tin?
+                    </h4>
+                    <p className="text-xs text-white/40">
+                      Liên hệ hotline{" "}
+                      {import.meta.env.VITE_HOTLINE_NUMBER || "0386920922"} để
+                      điều chỉnh kịp thời.
+                    </p>
+                  </div>
+                </div>
+                <button className="bg-white text-ink px-8 py-3 rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-accent hover:text-white transition-all">
+                  Chat ngay
+                </button>
+              </div>
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {popup && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setPopup(null)}
+                className="absolute inset-0 bg-ink/40 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="bg-white w-full max-w-sm rounded-[48px] shadow-2xl relative z-10 p-10 text-center border border-border-beige"
+              >
+                <div
+                  className={cn(
+                    "w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner",
+                    popup.type === "success"
+                      ? "bg-green-50 text-green-600"
+                      : "bg-red-50 text-red-600",
+                  )}
+                >
+                  {popup.type === "success" ? (
+                    <CheckCircle2 className="w-10 h-10" />
+                  ) : (
+                    <XCircle className="w-10 h-10" />
+                  )}
+                </div>
+                <h3 className="text-2xl font-serif italic text-primary mb-3">
+                  {popup.title}
+                </h3>
+                <p className="text-sm text-ink/40 font-medium leading-relaxed mb-8">
+                  {popup.message}
+                </p>
+                <button
+                  onClick={() => setPopup(null)}
+                  className={cn(
+                    "w-full py-4 text-white rounded-2xl font-bold uppercase tracking-widest text-[10px] shadow-lg transition-all",
+                    popup.type === "success" ? "bg-primary" : "bg-red-500",
+                  )}
+                >
+                  Đã hiểu
+                </button>
+              </motion.div>
+            </div>
           )}
         </AnimatePresence>
       </div>

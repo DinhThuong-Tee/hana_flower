@@ -41,17 +41,18 @@ class OrderItem(BaseModel):
 
 class OrderModel(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
-    order_code: str # Mã đơn hàng hiển thị cho khách (VD: #HANA123)
+    order_code: str # Mã đơn hàng hiển thị cho khách (VD: #FLORA123)
     user_id: Optional[str] = None
     customer_info: CustomerInfo
     delivery_details: DeliveryDetails
     items: List[OrderItem]
     total_amount: float
+    total_profit: float = 0
     payment_method: str # 'vietqr' hoặc 'cod'
     payment_status: str = "pending"
     order_status: str = "pending" # pending, shipping, completed, cancelled
     payment_receipt: Optional[str] = None # URL ảnh bill
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now)
 
 # --- FLASH SALE ---
 class FlashSaleModel(BaseModel):

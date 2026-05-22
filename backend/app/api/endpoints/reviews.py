@@ -1,8 +1,31 @@
-from fastapi import APIRouter, Depends , Body , HTTPException
+from fastapi import APIRouter, Depends , Body , HTTPException , Header
+from app.core.security import decode_access_token
+from typing import Optional
 from app.core.database import get_db
 from datetime import datetime
+from bson import ObjectId
 
 router = APIRouter()
+
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    if not authorization:
+        print("LỖI BE: Không tìm thấy Header Authorization")
+        raise HTTPException(status_code=401, detail="Yêu cầu đăng nhập")
+    
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != 'bearer':
+            raise ValueError("Invalid scheme")
+            
+        payload = decode_access_token(token)
+        if not payload:
+            print("LỖI BE: Token không thể giải mã (Sai Key hoặc hết hạn)")
+            raise HTTPException(status_code=401, detail="Phiên đăng nhập hết hạn")
+            
+        return payload
+    except Exception as e:
+        print(f"LỖI BE: {e}")
+        raise HTTPException(status_code=401, detail="Token không hợp lệ")
 
 @router.get("/homepage")
 async def get_homepage_reviews(db = Depends(get_db)):
@@ -27,35 +50,36 @@ async def get_product_reviews(product_id: str, db = Depends(get_db)):
     return reviews
 
 @router.post("/")
-async def create_review(payload: dict = Body(...), db = Depends(get_db)):
+async def create_review(payload: dict = Body(...), db = Depends(get_db), current_user = Depends(get_current_user)):
     try:
-        order_id = payload.get("order_id")
-        product_id = payload.get("product_id")
-
-        # 1. KIỂM TRA: Nếu đã có đánh giá cho sản phẩm này trong đơn hàng này rồi
-        existing_review = await db["reviews"].find_one({
-            "order_id": order_id,
-            "product_id": product_id
-        })
+        # 1. Tìm thông tin người dùng từ bảng 'users' bằng ID trong Token
+        user = await db["users"].find_one({"_id": ObjectId(current_user.get("uid"))})
         
-        if existing_review:
-            raise HTTPException(status_code=400, detail="Bạn đã đánh giá sản phẩm này cho đơn hàng này rồi.")
+        # Lấy tên hiển thị của tài khoản, nếu không có mới lấy email, cuối cùng mới dùng mặc định
+        real_account_name = user.get("displayName") or user.get("email") or "Người dùng Hana"
 
-        # 2. Lưu đánh giá mới
+        # 2. Kiểm tra đánh giá trùng (giữ nguyên logic cũ)
+        existing = await db["reviews"].find_one({
+            "order_id": payload.get("order_id"),
+            "product_id": payload.get("product_id")
+        })
+        if existing:
+            raise HTTPException(status_code=400, detail="Bạn đã đánh giá rồi")
+
+        # 3. Lưu đánh giá với TÊN TÀI KHOẢN THẬT
         new_review = {
-            "product_id": product_id,
-            "order_id": order_id,
-            "user_name": payload.get("user_name"),
+            "product_id": payload.get("product_id"),
+            "order_id": payload.get("order_id"),
+            "user_id": current_user.get("uid"),
+            "user_name": real_account_name, # <-- LƯU TÊN TÀI KHOẢN Ở ĐÂY
             "rating": payload.get("rating"),
             "comment": payload.get("comment"),
             "is_approved": False,
             "created_at": datetime.now()
         }
         
-        result = await db["reviews"].insert_one(new_review)
-        return {"status": "success", "id": str(result.inserted_id)}
-    except HTTPException as he:
-        raise he
+        await db["reviews"].insert_one(new_review)
+        return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

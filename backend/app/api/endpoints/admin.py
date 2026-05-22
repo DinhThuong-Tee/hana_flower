@@ -1,28 +1,77 @@
-from fastapi import APIRouter, Depends, Body , HTTPException
+from fastapi import APIRouter, Depends, Body , HTTPException, Header
+from tifffile import product
 from app.core.database import get_db
 from bson import ObjectId
-from datetime import datetime
+from typing import Optional
+from datetime import datetime, timedelta
+from app.core.security import decode_access_token
 
 router = APIRouter()
+
+async def get_current_admin(authorization: Optional[str] = Header(None)):
+    """
+    Hàm kiểm tra Token gửi từ Frontend. 
+    Nếu Token hợp lệ và có quyền 'admin' thì mới cho phép đi tiếp.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Yêu cầu đăng nhập quản trị")
+    
+    token = authorization.split(" ")[1]
+    payload = decode_access_token(token) # Giải mã chuỗi hash
+    
+    if not payload:
+        raise HTTPException(status_code=401, detail="Phiên làm việc hết hạn")
+    
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Bạn không có quyền truy cập vùng này")
+    
+    return payload
 
 # 1. API lấy thống kê (Stats)
 @router.get("/stats")
 async def get_admin_stats(db = Depends(get_db)):
-    # Tổng doanh thu từ đơn 'completed'
-    revenue_data = await db["orders"].aggregate([
-        {"$match": {"order_status": "completed"}},
-        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
-    ]).to_list(1)
+    seven_days_ago = datetime.now() - timedelta(days=7)
     
-    total_rev = revenue_data[0]["total"] if revenue_data else 0
+    # 1. Lấy dữ liệu 7 ngày qua cho biểu đồ Doanh thu & Lợi nhuận
+    daily_data = await db["orders"].aggregate([
+        {
+            "$match": {
+                "order_status": "completed",
+                "created_at": {"$gte": seven_days_ago}
+            }
+        },
+        {
+            "$group": {
+                "_id": {"$dateToString": {"format": "%d/%m", "date": "$created_at"}},
+                "revenue": {"$sum": "$total_amount"},
+                "profit": {"$sum": "$total_profit"}
+            }
+        },
+        {"$sort": {"_id": 1}},
+        {"$project": {"date": "$_id", "revenue": 1, "profit": 1, "_id": 0}}
+    ]).to_list(10)
+
+    # 2. Lấy dữ liệu phân bổ sản phẩm theo danh mục
+    category_data = await db["products"].aggregate([
+        {"$unwind": "$categories"},
+        {"$group": {"_id": "$categories", "count": {"$sum": 1}}},
+        {"$project": {"name": "$_id", "value": "$count", "_id": 0}}
+    ]).to_list(100)
+
+    # 3. Tính tổng số liệu tổng quát
+    total_rev = sum(d['revenue'] for d in daily_data)
+    total_profit = sum(d['profit'] for d in daily_data)
     active_orders = await db["orders"].count_documents({"order_status": {"$in": ["pending", "shipping"]}})
     total_products = await db["products"].count_documents({})
-    
+
     return {
         "totalRev": total_rev,
+        "totalProfit": total_profit,
+        "dailyStats": daily_data,      # <--- Key này phải khớp với data={detailedStats.dailyStats}
+        "categoryStats": category_data, # <--- Key này phải khớp với data={detailedStats.categoryStats}
         "activeOrders": active_orders,
         "totalProducts": total_products,
-        "completionRate": 100.0 # Tạm thời để 100%
+        "completionRate": 100.0
     }
 
 # 2. API lấy danh sách toàn bộ đơn hàng
@@ -47,14 +96,15 @@ async def get_admin_reviews(db = Depends(get_db)):
 
 # 4. API THÊM SẢN PHẨM (Nút "Lưu Tác Phẩm" gọi API này)
 @router.post("/products")
-async def add_product(product: dict = Body(...), db = Depends(get_db)):
-    # Backend nhận 'images' là mảng từ FE gửi lên
-    product["created_at"] = datetime.utcnow()
+async def add_product(product: dict = Body(...), db = Depends(get_db), admin = Depends(get_current_admin)):
+    if product.get("price", 0) < 0 or product.get("original_price", 0) < 0:
+        raise HTTPException(status_code=400, detail="Giá sản phẩm không được là số âm")
+        product["created_at"] = datetime.now()
     result = await db["products"].insert_one(product)
     return {"status": "success", "id": str(result.inserted_id)}
 
 @router.post("/flash-sales")
-async def add_flash_sale(data: dict = Body(...), db = Depends(get_db)):
+async def add_flash_sale(data: dict = Body(...), db = Depends(get_db), admin = Depends(get_current_admin)):
     # Chuẩn hóa dữ liệu thời gian (Vì FE gửi chuỗi ISO)
     # Ví dụ: data['start_time'] = "2026-05-19T03:08"
     
@@ -65,6 +115,12 @@ async def add_flash_sale(data: dict = Body(...), db = Depends(get_db)):
     # Thông thường Flash Sale sẽ được lưu riêng để đối chiếu thời gian
     
     return {"status": "success", "id": str(result.inserted_id)}
+
+@router.put("/flash-sales/{fs_id}")
+async def update_flash_sale(fs_id: str, data: dict = Body(...), db = Depends(get_db), admin = Depends(get_current_admin)):
+    if "_id" in data: del data["_id"]
+    await db["flash_sales"].update_one({"_id": ObjectId(fs_id)}, {"$set": data})
+    return {"status": "success"}
 
 # API để xóa Flash Sale (Frontend có nút Trash)
 @router.delete("/flash-sales/{id}")
@@ -125,7 +181,8 @@ async def hide_review_from_admin(review_id: str, db = Depends(get_db)):
         # Thay vì xóa, chúng ta cập nhật trường hidden_from_admin thành True
         result = await db["reviews"].update_one(
             {"_id": ObjectId(review_id)},
-            {"$set": {"hidden_from_admin": True}}
+            {"$set": {"hidden_from_admin": True,
+                      "is_approved": False}}  # Đồng thời đảm bảo đánh giá không được duyệt
         )
         
         if result.matched_count == 0:
@@ -156,9 +213,12 @@ async def delete_product(product_id: str, db = Depends(get_db)):
     
     # API CẬP NHẬT THÔNG TIN SẢN PHẨM
 @router.put("/products/{product_id}")
-async def update_product(product_id: str, data: dict = Body(...), db = Depends(get_db)):
+async def update_product(product_id: str, data: dict = Body(...), db = Depends(get_db), admin = Depends(get_current_admin)):
     try:
-        # Loại bỏ trường _id khỏi dữ liệu gửi lên nếu có để tránh lỗi MongoDB
+        if data.get("price", 0) < 0 or data.get("original_price", 0) < 0:
+            raise HTTPException(status_code=400, detail="Giá sản phẩm không được là số âm")
+    
+
         if "_id" in data:
             del data["_id"]
             
@@ -202,3 +262,21 @@ async def get_order_review(order_id: str, db = Depends(get_db)):
     for r in reviews:
         r["_id"] = str(r["_id"])
     return reviews
+
+# API CẬP NHẬT TRẠNG THÁI THANH TOÁN (AdminPage.tsx gọi)
+@router.patch("/orders/{order_id}/payment-status")
+async def update_payment_status(order_id: str, payload: dict = Body(...), db = Depends(get_db), admin = Depends(get_current_admin)):
+    try:
+        new_status = payload.get("payment_status") # 'paid' hoặc 'pending'
+        
+        result = await db["orders"].update_one(
+            {"_id": ObjectId(order_id)},
+            {"$set": {"payment_status": new_status}}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+            
+        return {"message": "Cập nhật trạng thái thanh toán thành công", "payment_status": new_status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

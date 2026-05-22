@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useSearchParams } from "react-router-dom";
 import { ArrowRight, Sparkles, Truck, Clock, ShieldCheck } from "lucide-react";
 import ProductCard from "../components/ProductCard";
 import FlashSaleCountdown from "../components/FlashSaleCountdown";
 import { Product, FlashSale } from "../types";
 import { cn } from "../utils/cn";
+import { useUI } from "../contexts/UIContext";
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -12,6 +14,10 @@ export default function HomePage() {
   const [reviews, setReviews] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("Tất cả");
+  const [sortBy, setSortBy] = useState("default");
+  const [searchParams] = useSearchParams();
+  const searchQuery = searchParams.get("q")?.toLowerCase() || "";
+  const { showModal } = useUI();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -37,10 +43,35 @@ export default function HomePage() {
     fetchData();
   }, []);
 
-  const filteredProducts =
-    selectedCategory === "Tất cả"
-      ? products
-      : products.filter((p) => p.categories?.includes(selectedCategory));
+  useEffect(() => {
+    if (searchQuery) {
+      const element = document.getElementById("products");
+      if (element) element.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [searchQuery]);
+
+  const randomHeroProducts = [...products]
+    .sort(() => 0.5 - Math.random()) // Trộn ngẫu nhiên danh sách
+    .slice(0, 2);
+
+  const filteredProducts = products.filter((p) => {
+    // 1. Lọc theo danh mục
+    const matchesCategory =
+      selectedCategory === "Tất cả" || p.categories?.includes(selectedCategory);
+
+    // 2. Lọc theo tên sản phẩm (Tìm kiếm)
+    const matchesSearch = p.name.toLowerCase().includes(searchQuery);
+
+    return matchesCategory && matchesSearch;
+  });
+
+  const displayProducts = [...filteredProducts].sort((a, b) => {
+    if (sortBy === "price-asc") return a.price - b.price;
+    if (sortBy === "price-desc") return b.price - a.price;
+    if (sortBy === "name-asc") return a.name.localeCompare(b.name);
+    if (sortBy === "name-desc") return b.name.localeCompare(a.name);
+    return 0;
+  });
 
   const activeFlashSales = flashSales.filter((s) =>
     products.find((p) => p._id === s.product_id && p.is_stock),
@@ -116,37 +147,39 @@ export default function HomePage() {
 
         <div className="absolute -right-20 -bottom-20 w-[400px] h-[400px] bg-sale-bg rounded-full blur-[100px] opacity-40"></div>
         <div className="absolute right-12 top-1/2 -translate-y-1/2 hidden md:flex gap-6">
+          {/* HÌNH 1 */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 1 }}
-            className="w-48 h-72 bg-accent rounded-full overflow-hidden shadow-2xl"
+            className="w-48 h-72 bg-accent rounded-full overflow-hidden shadow-2xl border-4 border-white"
           >
             <img
               src={
-                products[0]?.images?.[0] ||
+                randomHeroProducts[0]?.images?.[0] ||
                 "https://images.unsplash.com/photo-1562690868-60bbe7293e94"
               }
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
+              alt="Art flower"
             />
           </motion.div>
+
+          {/* HÌNH 2 */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9, y: -20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ delay: 0.7, duration: 1 }}
-            className="w-48 h-72 bg-primary rounded-full mt-12 overflow-hidden shadow-2xl"
+            className="w-48 h-72 bg-primary rounded-full mt-12 overflow-hidden shadow-2xl border-4 border-white"
           >
             <img
               src={
-                activeFlashSales[0]
-                  ? products.find(
-                      (p) => p._id === activeFlashSales[0].product_id,
-                    )?.images?.[0]
-                  : "https://images.unsplash.com/photo-1591880911020-d34931ea5404"
+                randomHeroProducts[1]?.images?.[0] ||
+                "https://images.unsplash.com/photo-1591880911020-d34931ea5404"
               }
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
+              alt="Art flower"
             />
           </motion.div>
         </div>
@@ -307,19 +340,41 @@ export default function HomePage() {
             </div>
           </aside>
 
-          <div className="flex-1">
-            <div className="flex items-center justify-between mb-12">
-              <h2 className="text-4xl font-serif italic text-primary">
-                Bộ Sưu Tập Artisan
-              </h2>
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-ink/30 italic">
-                {filteredProducts.length} tác phẩm thiết kế
-              </span>
+          <div id="products" className="flex-1">
+            {/* --- ĐƯA PHẦN TIÊU ĐỀ VÀ BỘ LỌC LÊN TRÊN CÙNG --- */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
+              <div className="flex flex-col">
+                <h2 className="text-4xl md:text-5xl font-serif italic text-primary leading-tight">
+                  Bộ Sưu Tập Artisan
+                </h2>
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-ink/30 italic mt-2 ml-1">
+                  {filteredProducts.length} tác phẩm thiết kế
+                </span>
+              </div>
+
+              {/* Sửa lại CSS cho ô Sắp xếp rộng rãi hơn */}
+              <div className="flex items-center gap-3 bg-white border border-border-beige px-4 py-2 rounded-2xl shadow-sm">
+                <span className="text-[9px] font-bold text-ink/30 uppercase tracking-widest whitespace-nowrap">
+                  Sắp xếp:
+                </span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="bg-transparent border-none text-[10px] font-bold uppercase text-primary outline-none cursor-pointer min-w-[140px]"
+                >
+                  <option value="default">Mặc định</option>
+                  <option value="price-asc">Giá: Thấp đến Cao</option>
+                  <option value="price-desc">Giá: Cao đến Thấp</option>
+                  <option value="name-asc">Tên: A đến Z</option>
+                  <option value="name-desc">Tên: Z đến A</option>
+                </select>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+            {/* --- SAU ĐÓ MỚI ĐẾN DANH SÁCH SẢN PHẨM --- */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
               <AnimatePresence mode="popLayout">
-                {filteredProducts.map((p, idx) => (
+                {displayProducts.map((p) => (
                   <motion.div
                     key={p._id}
                     layout
@@ -378,7 +433,7 @@ export default function HomePage() {
 
       <footer className="footer-flora px-12 py-10 bg-primary text-white/80 mx-6 mb-6 rounded-[32px]">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 text-[9px] uppercase tracking-[0.2em] font-bold">
-          <span>© 2026 L'Art de Fleur Boutique</span>
+          <span>© 2026 Flora Boutique</span>
           <div className="flex flex-wrap justify-center gap-6 md:gap-12">
             <span className="hover:text-white cursor-pointer transition-colors">
               Thanh toán VietQR
