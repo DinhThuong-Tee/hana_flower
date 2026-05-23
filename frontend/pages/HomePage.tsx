@@ -9,6 +9,7 @@ import { cn } from "../utils/cn";
 import { useUI } from "../contexts/UIContext";
 import chieclaImg from "../assets/images/chiecla.png";
 import bonghoaImg from "../assets/images/bonghoa.png";
+import hoa2Img from "../assets/images/hoa2.png";
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -101,7 +102,7 @@ export default function HomePage() {
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
           {[...Array(15)].map((_, i) => {
             // 1. Tạo danh sách các hình ảnh để rơi
-            const fallingAssets = [chieclaImg, bonghoaImg];
+            const fallingAssets = [chieclaImg, bonghoaImg, hoa2Img];
             // 2. Chọn ngẫu nhiên 1 hình cho mỗi lượt
             const randomImg = fallingAssets[i % fallingAssets.length];
 
