@@ -8,6 +8,7 @@ import { Product, FlashSale } from "../types";
 import { cn } from "../utils/cn";
 import { useUI } from "../contexts/UIContext";
 import chieclaImg from "../assets/images/chiecla.png";
+import bonghoaImg from "../assets/images/bonghoa.png";
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -96,37 +97,49 @@ export default function HomePage() {
       {/* Hero Section */}
       <section className="relative h-[70vh] flex items-center px-12 overflow-hidden bg-[#F2F2EB] border-b border-border-beige mx-6 mt-6 rounded-[40px]">
         {/* --- HIỆU ỨNG LÁ RƠI TOÀN NỀN --- */}
+        {/* --- HIỆU ỨNG RƠI ĐA DẠNG (LÁ & HOA) --- */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-          {[...Array(6)].map((_, i) => (
-            <motion.img
-              key={i}
-              src={chieclaImg}
-              initial={{
-                y: -100,
-                x: Math.random() * 1200,
-                rotate: 0,
-                opacity: 0,
-              }}
-              animate={{
-                y: 800,
-                x: Math.random() * 1200 + (Math.random() > 0.5 ? 200 : -200),
-                rotate: 360,
-                opacity: [0, 0.2, 0.15, 0], // Hiện ra rồi mờ dần khi rơi xuống
-              }}
-              transition={{
-                duration: 15 + Math.random() * 10, // Tốc độ rơi ngẫu nhiên
-                repeat: Infinity,
-                delay: i * 3, // Mỗi lá rơi cách nhau một khoảng thời gian
-                ease: "linear",
-              }}
-              style={{
-                width: 40 + Math.random() * 40 + "px", // Kích thước lá ngẫu nhiên
-                filter: "blur(1px)",
-                mixBlendMode: "multiply", // Giúp hòa trộn ảnh vào nền beige đẹp hơn
-              }}
-              className="absolute"
-            />
-          ))}
+          {[...Array(15)].map((_, i) => {
+            // 1. Tạo danh sách các hình ảnh để rơi
+            const fallingAssets = [chieclaImg, bonghoaImg];
+            // 2. Chọn ngẫu nhiên 1 hình cho mỗi lượt
+            const randomImg = fallingAssets[i % fallingAssets.length];
+
+            return (
+              <motion.img
+                key={i}
+                src={randomImg}
+                initial={{
+                  y: -150,
+                  x: Math.random() * 1500,
+                  rotate: 0,
+                  opacity: 0,
+                  scale: 0.5,
+                }}
+                animate={{
+                  y: 900,
+                  x: Math.random() * 1500 + (Math.random() > 0.5 ? 300 : -300),
+                  rotate: Math.random() * 720, // Xoay vòng tự nhiên hơn
+                  opacity: [0, 0.2, 0.2, 0], // Mờ ảo kiểu nghệ thuật
+                  scale: [0.5, 1, 0.8, 0.5], // To dần rồi nhỏ lại
+                }}
+                transition={{
+                  duration: 12 + Math.random() * 15, // Tốc độ rơi khác nhau
+                  repeat: Infinity,
+                  delay: i * 2, // Xuất hiện so le
+                  ease: "easeInOut",
+                }}
+                style={{
+                  width: 30 + Math.random() * 60 + "px",
+                  filter: "blur(0.5px)",
+                  // Nếu là ảnh JPG có nền trắng thì dùng multiply,
+                  // nếu là ảnh PNG trong suốt thì bỏ dòng mixBlendMode này đi:
+                  mixBlendMode: "multiply",
+                }}
+                className="absolute"
+              />
+            );
+          })}
         </div>
         <div className="relative z-10 max-w-lg">
           <motion.span
