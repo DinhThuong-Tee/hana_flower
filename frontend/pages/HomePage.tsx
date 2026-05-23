@@ -7,6 +7,7 @@ import FlashSaleCountdown from "../components/FlashSaleCountdown";
 import { Product, FlashSale } from "../types";
 import { cn } from "../utils/cn";
 import { useUI } from "../contexts/UIContext";
+import chieclaImg from "../assets/images/chiecla.png";
 
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -94,6 +95,39 @@ export default function HomePage() {
     <div className="w-full">
       {/* Hero Section */}
       <section className="relative h-[70vh] flex items-center px-12 overflow-hidden bg-[#F2F2EB] border-b border-border-beige mx-6 mt-6 rounded-[40px]">
+        {/* --- HIỆU ỨNG LÁ RƠI TOÀN NỀN --- */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          {[...Array(6)].map((_, i) => (
+            <motion.img
+              key={i}
+              src={chieclaImg}
+              initial={{
+                y: -100,
+                x: Math.random() * 1200,
+                rotate: 0,
+                opacity: 0,
+              }}
+              animate={{
+                y: 800,
+                x: Math.random() * 1200 + (Math.random() > 0.5 ? 200 : -200),
+                rotate: 360,
+                opacity: [0, 0.2, 0.15, 0], // Hiện ra rồi mờ dần khi rơi xuống
+              }}
+              transition={{
+                duration: 15 + Math.random() * 10, // Tốc độ rơi ngẫu nhiên
+                repeat: Infinity,
+                delay: i * 3, // Mỗi lá rơi cách nhau một khoảng thời gian
+                ease: "linear",
+              }}
+              style={{
+                width: 40 + Math.random() * 40 + "px", // Kích thước lá ngẫu nhiên
+                filter: "blur(1px)",
+                mixBlendMode: "multiply", // Giúp hòa trộn ảnh vào nền beige đẹp hơn
+              }}
+              className="absolute"
+            />
+          ))}
+        </div>
         <div className="relative z-10 max-w-lg">
           <motion.span
             initial={{ opacity: 0, y: 10 }}
