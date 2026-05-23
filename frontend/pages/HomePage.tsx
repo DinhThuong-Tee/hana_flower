@@ -100,7 +100,7 @@ export default function HomePage() {
         {/* --- HIỆU ỨNG LÁ RƠI TOÀN NỀN --- */}
         {/* --- HIỆU ỨNG RƠI ĐA DẠNG (LÁ & HOA) --- */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-          {[...Array(15)].map((_, i) => {
+          {[...Array(20)].map((_, i) => {
             // 1. Tạo danh sách các hình ảnh để rơi
             const fallingAssets = [chieclaImg, bonghoaImg, hoa2Img];
             // 2. Chọn ngẫu nhiên 1 hình cho mỗi lượt

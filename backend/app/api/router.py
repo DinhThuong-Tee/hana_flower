@@ -1,6 +1,6 @@
 # backend/app/api/router.py
 from fastapi import APIRouter
-from app.api.endpoints import products, orders, auth, reviews, admin , flash_sales, cart
+from app.api.endpoints import products, orders, auth, reviews, admin , flash_sales, cart, ai
 
 
 api_router = APIRouter()
@@ -11,3 +11,4 @@ api_router.include_router(reviews.router, prefix="/reviews", tags=["Reviews"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
 api_router.include_router(flash_sales.router, prefix="/flash-sales", tags=["Flash Sales"])
 api_router.include_router(cart.router, prefix="/cart", tags=["Cart"])
+api_router.include_router(ai.router, prefix="/ai", tags=["AI"])

@@ -197,7 +197,7 @@ async def cancel_order(order_id: str, db = Depends(get_db), current_user = Depen
     return {"message": "Đã hủy"}
 
 # Lấy danh sách đơn hàng của một người dùng cụ thể (Dùng cho trang Hành trình của hoa)
-@router.get("/user/{user_id}")
+@router.get("/user/{user_id}/")
 async def get_user_orders(user_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
     # BẢO MẬT: Chỉ cho phép lấy đơn hàng nếu UID trong Token trùng với user_id trong URL
     if current_user.get("uid") != user_id:

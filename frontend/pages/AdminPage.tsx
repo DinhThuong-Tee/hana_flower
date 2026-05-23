@@ -25,7 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
-  Info,
+  Sparkles,
 } from "lucide-react";
 import {
   BarChart,
@@ -226,6 +226,51 @@ export default function AdminPage() {
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAIGenerateDesc = async () => {
+    if (!newProduct.name) {
+      setPopup({
+        title: "Thiếu tên hoa",
+        message:
+          "Vui lòng nhập tên tác phẩm (VD: Hoa hồng đỏ) để AI có thể sáng tạo mô tả.",
+        type: "warning",
+        onConfirm: () => setPopup(null),
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/ai/generate-description", {
+        method: "POST",
+        headers: getAuthHeader(), // Phải gửi Token để Backend cho phép dùng AI
+        body: JSON.stringify({ name: newProduct.name }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setNewProduct((prev) => ({ ...prev, description: data.description }));
+      } else {
+        console.error(data.detail);
+        setPopup({
+          title: "AI đang bận",
+          message: data.detail || "Thử lại sau nhé",
+          type: "danger",
+          onConfirm: () => setPopup(null),
+        });
+      }
+    } catch (error: any) {
+      setPopup({
+        title: "AI đang bận",
+        message:
+          "Không thể kết nối với trí tuệ nhân tạo lúc này. Vui lòng thử lại sau.",
+        type: "danger",
+        onConfirm: () => setPopup(null),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -1183,6 +1228,34 @@ export default function AdminPage() {
                         )}
                       </div>
                     </section>
+
+                    <section>
+                      <h4 className="text-[10px] uppercase font-bold text-ink/20 mb-4 tracking-widest flex items-center">
+                        <MessageSquare className="w-3 h-3 mr-2" /> Thông điệp
+                        thiệp
+                      </h4>
+                      <div className="bg-paper/50 p-6 rounded-3xl border border-primary/5">
+                        {/* Truy cập vào delivery_details.card_message */}
+                        {selectedOrder.delivery_details?.card_message ? (
+                          <div className="relative">
+                            <span className="absolute -top-4 -left-2 text-4xl text-primary/10 font-serif">
+                              “
+                            </span>
+                            <p className="text-sm font-serif italic text-primary leading-relaxed px-2">
+                              {selectedOrder.delivery_details.card_message}
+                            </p>
+                            <span className="absolute -bottom-6 -right-2 text-4xl text-primary/10 font-serif">
+                              ”
+                            </span>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-ink/20 italic text-center">
+                            Khách hàng không để lại lời nhắn.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+
                     <section>
                       <h4 className="text-[10px] uppercase font-bold text-ink/20 mb-4 flex items-center">
                         <MessageSquare className="w-3 h-3 mr-2" /> Đánh giá
@@ -1400,9 +1473,29 @@ export default function AdminPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-bold text-ink/60 ml-4">
-                    Mô tả
-                  </label>
+                  <div className="flex justify-between items-center px-4">
+                    <label className="text-[10px] uppercase font-bold text-ink/60 ml-4">
+                      Mô tả
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAIGenerateDesc}
+                      disabled={isLoading || !newProduct.name}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-full text-[9px] font-bold uppercase tracking-widest transition-all",
+                        "bg-primary/10 text-primary hover:bg-primary hover:text-white shadow-sm",
+                        (!newProduct.name || isLoading) &&
+                          "opacity-50 cursor-not-allowed",
+                      )}
+                    >
+                      {isLoading ? (
+                        <Loader2 size={10} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={10} className="fill-current" />
+                      )}
+                      AI hỗ trợ
+                    </button>
+                  </div>
                   <textarea
                     rows={3}
                     className="w-full bg-paper border-none rounded-2xl px-6 py-4 text-sm outline-none resize-none"

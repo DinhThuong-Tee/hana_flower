@@ -19,6 +19,7 @@ import {
   Upload,
   X,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "../utils/cn";
 
@@ -53,6 +54,7 @@ export default function CheckoutPage() {
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // States cho Popup thông báo mới
   const [isReceiptSubmitted, setIsReceiptSubmitted] = useState(false);
@@ -152,6 +154,33 @@ export default function CheckoutPage() {
       }
     }
     return true;
+  };
+
+  const handleAIGenerateMessage = async () => {
+    // Lấy tên người nhận từ form, nếu chưa nhập thì dùng mặc định
+    const recipientName = formData.name || "người ấy";
+
+    setIsLoading(true); // Tận dụng state loading có sẵn
+    try {
+      const res = await fetch("/api/ai/generate-card-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipient: recipientName,
+          occasion: "kỷ niệm", // Có thể làm thêm dropdown chọn dịp nếu muốn
+          tone: "lãng mạn",
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setFormData((prev) => ({ ...prev, message: data.message }));
+      }
+    } catch (error) {
+      console.error("Lỗi AI:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -525,9 +554,20 @@ export default function CheckoutPage() {
                         </div>
                       </div>
                       <div className="space-y-3">
-                        <label className="text-[10px] uppercase font-bold text-ink/40 ml-4 flex items-center">
-                          <MessageSquare className="w-3 h-3 mr-2" /> Lời nhắn
-                        </label>
+                        <div className="flex justify-between items-center px-4">
+                          <label className="text-[10px] uppercase font-bold text-ink/40 ml-4 flex items-center">
+                            <MessageSquare className="w-3 h-3 mr-2" /> Lời nhắn
+                            trên thiệp
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleAIGenerateMessage}
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-bold uppercase bg-accent/10 text-accent hover:bg-accent hover:text-white transition-all shadow-sm"
+                          >
+                            <Sparkles size={10} className="fill-current" />
+                            AI viết hộ lời chúc
+                          </button>
+                        </div>
                         <textarea
                           rows={3}
                           className="w-full bg-white border border-primary/10 rounded-2xl px-6 py-4 outline-none focus:ring-2 ring-primary/20 italic resize-none"
